@@ -22,11 +22,10 @@ servers = []
 verbose3 = args.vvv
 verbose2 = args.vv or args.vvv
 verbose1 = args.v or args.vv or args.vvv
+timeout = 60
 
 local = args.l
 echo = args.e
-
-
 
 class Server:
 
@@ -79,6 +78,7 @@ class Client:
         thread.start_new_thread(self.client_thread, ())
 
     def client_thread(self):
+        self.connection.setblocking(0)
         while True:
             # Wait for a connection
             try:
@@ -86,28 +86,31 @@ class Client:
                 if verbose2:
                     print 'connection from {0} on port {1}'.format(self.client_address, self.port)
 
-                # Receive the data in small chunks and retransmit it
+                start = time.time()
                 while True:
-                    data = self.connection.recv(16)
-                    if verbose3:
-                        print 'received "{0}" on port {1} from {2}'.format(data.rstrip(), self.port, self.client_address)
-                    if data:
-                        for server in servers:
-                            for client in server.clients:
-                                if client != self or echo:
-                                    client.send(data)
+                    if time.time()-start<timeout:
+                        try:
+                            data = self.connection.recv(16)
+                            start =time.time()
+                            if verbose3:
+                                print 'received "{0}" on port {1} from {2}'.format(data.rstrip(), self.port,
+                                                                                   self.client_address)
+                            if data:
+                                for server in servers:
+                                    for client in server.clients:
+                                        if client != self or echo:
+                                            client.send(data)
+                            else:
+                                if verbose2:
+                                    print 'no more data from', self.client_address
+                                    # break
+                        except:
+                            time.time()
                     else:
-                        if verbose2:
-                            print 'no more data from', self.client_address
-                        # break
-            # except:
-            #     print 'connection timeout on port {0}'.format(self.port)
-            #     # break
+                        print 'connection timeout on port {0}'.format(self.port)
+                        break
             finally:
-                if self.connection:
-                    self.connection.close()
-                    self.connection = None
-                print 'end connection on port {0}'.format(self.port)
+                self.kill()
                 break
 
     def send(self, data):
@@ -120,6 +123,7 @@ class Client:
         if self.connection:
             self.connection.close()
             self.connection = None
+        print 'end connection on port {0}'.format(self.port)
 
 
 for i in range(0, len(args.ports)):
@@ -133,6 +137,11 @@ try:
         for serv in servers:
             if verbose2:
                 print "Server on port {0} has {1} active connections.".format(serv.port, len(serv.clients))
+            for client in serv.clients:
+                print client.connection
+                if(not client.connection):
+                    serv.clients.remove(client)
+                    del client
 except:
     for server in servers:
         server.kill()
